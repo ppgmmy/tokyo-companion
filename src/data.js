@@ -33,35 +33,84 @@ export function weekOf(date) {
 
 /** Prefer historically locked HKD; never recompute from the live global rate. */
 export function lockedHkd(entry, fallbackRate = DEFAULT_RATE) {
-  if (typeof entry?.amountInHKD === "number" && entry.amountInHKD >= 0) return entry.amountInHKD;
-  if (typeof entry?.hkd === "number" && entry.hkd >= 0) return entry.hkd;
-  const rate =
-    typeof entry?.storedRate === "number" && entry.storedRate > 0
-      ? entry.storedRate
-      : fallbackRate;
-  return (entry?.jpy || 0) * rate;
+  try {
+    if (typeof entry?.amountInHKD === "number" && Number.isFinite(entry.amountInHKD) && entry.amountInHKD >= 0) {
+      return entry.amountInHKD;
+    }
+    if (typeof entry?.hkd === "number" && Number.isFinite(entry.hkd) && entry.hkd >= 0) {
+      return entry.hkd;
+    }
+    const rate =
+      typeof entry?.storedRate === "number" && entry.storedRate > 0
+        ? entry.storedRate
+        : fallbackRate;
+    const jpy = Number(entry?.jpy);
+    return (Number.isFinite(jpy) ? jpy : 0) * rate;
+  } catch {
+    return 0;
+  }
 }
 
+/** Safe schema fallback for old transactions missing storedRate / amountInHKD. */
 export function normalizeExpense(entry, fallbackRate = DEFAULT_RATE) {
-  const jpy = Number(entry.jpy) || 0;
-  const storedRate =
-    typeof entry.storedRate === "number" && entry.storedRate > 0
-      ? entry.storedRate
-      : fallbackRate;
-  const amountInHKD =
-    typeof entry.amountInHKD === "number"
-      ? entry.amountInHKD
-      : typeof entry.hkd === "number"
-        ? entry.hkd
-        : jpy * storedRate;
-  return {
-    ...entry,
-    jpy,
-    storedRate,
-    amountInHKD,
-    hkd: amountInHKD,
-    week: entry.week || weekOf(new Date(entry.createdAt || Date.now())),
-  };
+  try {
+    const src = entry && typeof entry === "object" ? entry : {};
+    const jpyRaw = Number(src.jpy);
+    const jpy = Number.isFinite(jpyRaw) ? jpyRaw : 0;
+    const storedRate =
+      typeof src.storedRate === "number" && src.storedRate > 0
+        ? src.storedRate
+        : fallbackRate > 0
+          ? fallbackRate
+          : DEFAULT_RATE;
+    let amountInHKD;
+    if (typeof src.amountInHKD === "number" && Number.isFinite(src.amountInHKD)) {
+      amountInHKD = src.amountInHKD;
+    } else if (typeof src.hkd === "number" && Number.isFinite(src.hkd)) {
+      amountInHKD = src.hkd;
+    } else {
+      amountInHKD = jpy * storedRate;
+    }
+    const createdAt = Number(src.createdAt) || Date.now();
+    let week = Number(src.week);
+    if (!Number.isFinite(week) || week < 1 || week > 5) {
+      try {
+        week = weekOf(new Date(createdAt));
+      } catch {
+        week = 1;
+      }
+    }
+    return {
+      ...src,
+      id: src.id || `exp-${createdAt}-${Math.random().toString(36).slice(2, 8)}`,
+      jpy,
+      storedRate,
+      amountInHKD,
+      hkd: amountInHKD,
+      note: typeof src.note === "string" ? src.note : "未命名",
+      categoryId: typeof src.categoryId === "string" ? src.categoryId : "other",
+      week,
+      createdAt,
+    };
+  } catch {
+    const now = Date.now();
+    return {
+      id: `exp-recovery-${now}`,
+      jpy: 0,
+      storedRate: fallbackRate || DEFAULT_RATE,
+      amountInHKD: 0,
+      hkd: 0,
+      note: "無法讀取的紀錄",
+      categoryId: "other",
+      week: 1,
+      createdAt: now,
+    };
+  }
+}
+
+export function hydrateExpenses(raw, fallbackRate = DEFAULT_RATE) {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((entry) => normalizeExpense(entry, fallbackRate));
 }
 
 export const PLACES = [
