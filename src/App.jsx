@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import BottomNav from "./components/BottomNav";
 import CafeLogTab from "./components/CafeLogTab";
 import ChecklistTab from "./components/ChecklistTab";
 import ExpenseTab from "./components/ExpenseTab";
 import ItineraryTab from "./components/ItineraryTab";
 import { CHECKLIST, DEFAULT_BUDGET_JPY, DEFAULT_RATE, ITINERARY } from "./data";
+import { useExchangeRate } from "./hooks/useExchangeRate";
 import { useLocalStorage } from "./hooks/useLocalStorage";
 
 function emptyChecklist() {
@@ -17,14 +18,30 @@ function emptyChecklist() {
   return next;
 }
 
+function normalizeRate(saved) {
+  if (saved && typeof saved === "object" && typeof saved.hkdPerJpy === "number") {
+    return saved;
+  }
+  if (typeof saved === "number" && saved > 0) {
+    return { hkdPerJpy: saved, source: "fallback", lastUpdated: null };
+  }
+  return { hkdPerJpy: DEFAULT_RATE, source: "fallback", lastUpdated: null };
+}
+
 export default function App() {
   const [tab, setTab] = useLocalStorage("tokyo-companion:tab", "itinerary");
+  const [week, setWeek] = useLocalStorage("tokyo-companion:week", 1);
   const [dayId, setDayId] = useLocalStorage("tokyo-companion:day", ITINERARY[0].id);
-  const [checked, setChecked] = useLocalStorage("tokyo-companion:checklist", emptyChecklist);
-  const [cafes, setCafes] = useLocalStorage("tokyo-companion:cafes", []);
-  const [expenses, setExpenses] = useLocalStorage("tokyo-companion:expenses", []);
-  const [rate, setRate] = useLocalStorage("tokyo-companion:rate", DEFAULT_RATE);
+  const [checked, setChecked] = useLocalStorage("tokyo-companion:checklist-v2", emptyChecklist);
+  const [cafes, setCafes] = useLocalStorage("tokyo-companion:cafes-v2", []);
+  const [expenses, setExpenses] = useLocalStorage("tokyo-companion:expenses-v2", []);
+  const [rateState, setRateState] = useLocalStorage(
+    "tokyo-companion:rate-v2",
+    normalizeRate(null)
+  );
   const [budget, setBudget] = useLocalStorage("tokyo-companion:budget", DEFAULT_BUDGET_JPY);
+
+  const { status: fxStatus, refresh, applyManual } = useExchangeRate(rateState, setRateState);
 
   const panel = useMemo(() => {
     switch (tab) {
@@ -37,16 +54,38 @@ export default function App() {
           <ExpenseTab
             expenses={expenses}
             setExpenses={setExpenses}
-            rate={rate}
-            setRate={setRate}
+            rateState={rateState}
             budget={budget}
             setBudget={setBudget}
+            fxStatus={fxStatus}
+            onRefreshRate={refresh}
+            onApplyManualRate={applyManual}
           />
         );
       default:
-        return <ItineraryTab dayId={dayId} setDayId={setDayId} />;
+        return (
+          <ItineraryTab dayId={dayId} setDayId={setDayId} week={week} setWeek={setWeek} />
+        );
     }
-  }, [tab, checked, cafes, expenses, rate, budget, dayId, setChecked, setCafes, setExpenses, setRate, setBudget, setDayId]);
+  }, [
+    tab,
+    checked,
+    cafes,
+    expenses,
+    rateState,
+    budget,
+    dayId,
+    week,
+    fxStatus,
+    setChecked,
+    setCafes,
+    setExpenses,
+    setBudget,
+    setDayId,
+    setWeek,
+    refresh,
+    applyManual,
+  ]);
 
   return (
     <div className="relative min-h-[100dvh] overflow-hidden">
@@ -62,7 +101,7 @@ export default function App() {
           <h1 className="mt-1 font-display text-[1.85rem] font-extrabold leading-tight text-ink">
             東京旅行助手
           </h1>
-          <p className="mt-1 text-sm text-ink-soft">原宿 · 澀谷 · 7 日步行節奏</p>
+          <p className="mt-1 text-sm text-ink-soft">原宿 · 澀谷 · 8/7 – 9/6 長住</p>
         </div>
       </header>
 

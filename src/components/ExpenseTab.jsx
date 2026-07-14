@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { BarChart, DoughnutChart } from "./Charts";
-import { EXPENSE_CATEGORIES, TRIP_DAYS } from "../data";
+import { EXPENSE_CATEGORIES, TRIP_DAYS, weekOf } from "../data";
 
 function formatJpy(n) {
   return `¥ ${Math.round(n).toLocaleString("ja-JP")}`;
@@ -10,20 +10,34 @@ function formatHkd(n) {
   return `HK$ ${n.toLocaleString("en-HK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+function formatWhen(ts) {
+  if (!ts) return "尚未更新";
+  return new Date(ts).toLocaleString("zh-HK", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export default function ExpenseTab({
   expenses,
   setExpenses,
-  rate,
-  setRate,
+  rateState,
   budget,
   setBudget,
+  fxStatus,
+  onRefreshRate,
+  onApplyManualRate,
 }) {
+  const rate = rateState?.hkdPerJpy || 0.051;
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
   const [categoryId, setCategoryId] = useState(null);
-  const [rateInput, setRateInput] = useState(String(rate * 100));
+  const [rateInput, setRateInput] = useState(String(Number((rate * 100).toFixed(2))));
   const [budgetInput, setBudgetInput] = useState(String(budget));
   const [filterCat, setFilterCat] = useState("all");
+  const [filterWeek, setFilterWeek] = useState("all");
 
   const totalJpy = expenses.reduce((s, e) => s + e.jpy, 0);
   const totalHkd = totalJpy * rate;
@@ -34,6 +48,15 @@ export default function ExpenseTab({
     const map = Object.fromEntries(EXPENSE_CATEGORIES.map((c) => [c.id, 0]));
     expenses.forEach((e) => {
       map[e.categoryId || "other"] = (map[e.categoryId || "other"] || 0) + e.jpy;
+    });
+    return map;
+  }, [expenses]);
+
+  const weekTotals = useMemo(() => {
+    const map = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+    expenses.forEach((e) => {
+      const w = e.week || weekOf(new Date(e.createdAt));
+      map[w] = (map[w] || 0) + e.jpy;
     });
     return map;
   }, [expenses]);
@@ -49,22 +72,18 @@ export default function ExpenseTab({
     value: catTotals[c.id] || 0,
   }));
 
-  const dayBars = useMemo(() => {
-    const bars = Array.from({ length: TRIP_DAYS }, (_, i) => ({
-      id: `d${i + 1}`,
-      label: `D${i + 1}`,
-      value: 0,
-    }));
-    expenses.forEach((e) => {
-      const dayIndex = Math.min(TRIP_DAYS - 1, Math.max(0, (e.dayIndex || 1) - 1));
-      bars[dayIndex].value += e.jpy;
-    });
-    return bars;
-  }, [expenses]);
+  const weekBars = [1, 2, 3, 4, 5].map((w) => ({
+    id: `w${w}`,
+    label: `W${w}`,
+    value: weekTotals[w] || 0,
+  }));
 
-  const filtered = expenses.filter(
-    (e) => filterCat === "all" || e.categoryId === filterCat
-  );
+  const filtered = expenses.filter((e) => {
+    const w = e.week || weekOf(new Date(e.createdAt));
+    const catOk = filterCat === "all" || e.categoryId === filterCat;
+    const weekOk = filterWeek === "all" || String(w) === String(filterWeek);
+    return catOk && weekOk;
+  });
 
   function selectCat(id) {
     setCategoryId(id);
@@ -76,6 +95,7 @@ export default function ExpenseTab({
     e.preventDefault();
     const jpy = Number(amount);
     if (!Number.isFinite(jpy) || jpy <= 0) return;
+    const now = Date.now();
     setExpenses((prev) => [
       {
         id: crypto.randomUUID(),
@@ -83,8 +103,8 @@ export default function ExpenseTab({
         hkd: jpy * rate,
         note: note.trim() || "未命名",
         categoryId: categoryId || "other",
-        dayIndex: Math.min(TRIP_DAYS, Math.max(1, new Date().getDay() || 1)),
-        createdAt: Date.now(),
+        week: weekOf(new Date(now)),
+        createdAt: now,
       },
       ...prev,
     ]);
@@ -93,45 +113,30 @@ export default function ExpenseTab({
     setCategoryId(null);
   }
 
-  function applyRate() {
-    const per100 = Number(rateInput);
-    if (!Number.isFinite(per100) || per100 <= 0) {
-      alert("請輸入有效匯率（100 JPY = ? HKD）");
-      return;
-    }
-    setRate(per100 / 100);
-  }
-
-  function applyBudget() {
-    const value = Number(budgetInput);
-    if (!Number.isFinite(value) || value < 0) {
-      alert("請輸入有效預算");
-      return;
-    }
-    setBudget(value);
-  }
+  const statusLabel =
+    fxStatus === "loading"
+      ? "正在更新匯率…"
+      : fxStatus === "live"
+        ? `線上匯率 · 更新於 ${formatWhen(rateState?.lastUpdated)}`
+        : fxStatus === "cached"
+          ? `使用快取／手動匯率 · ${formatWhen(rateState?.lastUpdated)}`
+          : `預設／離線備援 · 100 JPY = 5.1 HKD`;
 
   return (
     <div className="space-y-4">
       <div>
         <h2 className="font-display text-xl font-bold text-ink">開支儀表板</h2>
-        <p className="text-sm text-ink-soft">JPY → HKD · 興趣獵寶也算進去</p>
+        <p className="text-sm text-ink-soft">JPY → HKD · Week 1–5 統計</p>
       </div>
 
       <div className="grid grid-cols-2 gap-2">
-        <div className="rounded-2xl bg-white/85 p-3 shadow-[var(--shadow-soft)]">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">總支出 JPY</p>
-          <p className="mt-1 font-display text-lg font-bold">{formatJpy(totalJpy)}</p>
-          <p className="text-xs text-ink-soft">{formatHkd(totalHkd)}</p>
+        <div className="rounded-2xl bg-white/85 p-3 shadow-[var(--shadow-soft)] col-span-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">總支出</p>
+          <p className="mt-1 font-display text-xl font-bold">{formatJpy(totalJpy)}</p>
+          <p className="text-sm text-teal">{formatHkd(totalHkd)}</p>
         </div>
         <div className="rounded-2xl bg-white/85 p-3 shadow-[var(--shadow-soft)]">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">剩餘預算</p>
-          <p className={`mt-1 font-display text-lg font-bold ${remaining < 0 ? "text-rose-brand" : "text-teal"}`}>
-            {formatJpy(remaining)}
-          </p>
-        </div>
-        <div className="rounded-2xl bg-white/85 p-3 shadow-[var(--shadow-soft)]">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">日均</p>
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">日均（31 天）</p>
           <p className="mt-1 font-display text-lg font-bold">{formatJpy(avgDaily)}</p>
           <p className="text-xs text-ink-soft">{formatHkd(avgDaily * rate)}</p>
         </div>
@@ -139,11 +144,45 @@ export default function ExpenseTab({
           <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">最高分類</p>
           <p className="mt-1 font-display text-lg font-bold">{topCat?.total ? topCat.label : "—"}</p>
         </div>
+        <div className="rounded-2xl bg-white/85 p-3 shadow-[var(--shadow-soft)] col-span-2">
+          <div className="flex items-end justify-between gap-2">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">預算 vs 實支</p>
+              <p className={`mt-1 font-display text-lg font-bold ${remaining < 0 ? "text-rose-brand" : "text-teal"}`}>
+                剩餘 {formatJpy(remaining)}
+              </p>
+            </div>
+            <p className="text-xs text-ink-soft">預算 {formatJpy(budget)}</p>
+          </div>
+          <div className="mt-2 h-2 overflow-hidden rounded-full bg-rose-soft">
+            <div
+              className={`h-full rounded-full ${remaining < 0 ? "bg-rose-brand" : "bg-teal"}`}
+              style={{ width: `${budget > 0 ? Math.min(100, Math.round((totalJpy / budget) * 100)) : 0}%` }}
+            />
+          </div>
+        </div>
       </div>
 
       <div className="rounded-3xl bg-white/85 p-4 shadow-[var(--shadow-soft)]">
+        <div className="mb-3 flex items-start justify-between gap-2">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-ink-faint">匯率 JPY → HKD</p>
+            <p className="mt-1 font-display text-xl font-bold text-teal">
+              100 JPY = {(rate * 100).toFixed(2)} HKD
+            </p>
+            <p className="mt-1 text-xs text-ink-faint">{statusLabel}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onRefreshRate}
+            className="min-h-11 min-w-11 rounded-2xl bg-rose-soft text-rose-deep active:scale-95"
+            aria-label="立即更新匯率"
+          >
+            ↻
+          </button>
+        </div>
         <label className="block">
-          <span className="mb-1.5 block text-sm font-semibold">本趟預算（JPY）</span>
+          <span className="mb-1.5 block text-sm font-semibold">本月預算（JPY）</span>
           <div className="flex gap-2">
             <input
               type="number"
@@ -151,26 +190,41 @@ export default function ExpenseTab({
               onChange={(e) => setBudgetInput(e.target.value)}
               className="w-full min-h-12 rounded-2xl border border-rose-soft bg-mist px-4 outline-none ring-rose-brand focus:ring-2"
             />
-            <button type="button" onClick={applyBudget} className="min-h-12 rounded-2xl bg-teal px-4 text-sm font-bold text-white">
+            <button
+              type="button"
+              onClick={() => {
+                const v = Number(budgetInput);
+                if (!Number.isFinite(v) || v < 0) return alert("請輸入有效預算");
+                setBudget(v);
+              }}
+              className="min-h-12 rounded-2xl bg-teal px-4 text-sm font-bold text-white"
+            >
               套用
             </button>
           </div>
         </label>
         <label className="mt-3 block">
-          <span className="mb-1.5 block text-sm font-semibold">匯率（100 JPY = ? HKD）</span>
+          <span className="mb-1.5 block text-sm font-semibold">手動匯率（100 JPY = ? HKD）</span>
           <div className="flex gap-2">
             <input
               type="number"
-              step="0.1"
+              step="0.01"
               value={rateInput}
               onChange={(e) => setRateInput(e.target.value)}
               className="w-full min-h-12 rounded-2xl border border-rose-soft bg-mist px-4 outline-none ring-rose-brand focus:ring-2"
             />
-            <button type="button" onClick={applyRate} className="min-h-12 rounded-2xl bg-rose-brand px-4 text-sm font-bold text-white">
+            <button
+              type="button"
+              onClick={() => {
+                const v = Number(rateInput);
+                if (!Number.isFinite(v) || v <= 0) return alert("請輸入有效匯率");
+                onApplyManualRate(v);
+              }}
+              className="min-h-12 rounded-2xl bg-rose-brand px-4 text-sm font-bold text-white"
+            >
               套用
             </button>
           </div>
-          <p className="mt-1 text-xs text-ink-faint">目前 1 JPY = {rate.toFixed(4)} HKD</p>
         </label>
       </div>
 
@@ -180,8 +234,8 @@ export default function ExpenseTab({
       </div>
 
       <div className="rounded-3xl bg-white/85 p-4 shadow-[var(--shadow-soft)]">
-        <h3 className="mb-3 font-display text-sm font-bold">每日開支比較</h3>
-        <BarChart bars={dayBars} />
+        <h3 className="mb-3 font-display text-sm font-bold">每週開支比較（W1–W5）</h3>
+        <BarChart bars={weekBars} />
       </div>
 
       <form onSubmit={addExpense} className="space-y-3 rounded-3xl bg-white/85 p-4 shadow-[var(--shadow-soft)]">
@@ -234,11 +288,7 @@ export default function ExpenseTab({
       <div>
         <p className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-ink-faint">依分類篩選</p>
         <div className="mb-3 flex flex-wrap gap-2">
-          <button
-            type="button"
-            className={`filter-chip border ${filterCat === "all" ? "is-active" : ""}`}
-            onClick={() => setFilterCat("all")}
-          >
+          <button type="button" className={`filter-chip border ${filterCat === "all" ? "is-active" : ""}`} onClick={() => setFilterCat("all")}>
             全部
           </button>
           {EXPENSE_CATEGORIES.map((c) => (
@@ -249,6 +299,22 @@ export default function ExpenseTab({
               onClick={() => setFilterCat(c.id)}
             >
               {c.label}
+            </button>
+          ))}
+        </div>
+        <p className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-ink-faint">依週次篩選</p>
+        <div className="mb-3 flex flex-wrap gap-2">
+          <button type="button" className={`filter-chip border ${filterWeek === "all" ? "is-active" : ""}`} onClick={() => setFilterWeek("all")}>
+            全部
+          </button>
+          {[1, 2, 3, 4, 5].map((w) => (
+            <button
+              key={w}
+              type="button"
+              className={`filter-chip border ${filterWeek === String(w) ? "is-active" : ""}`}
+              onClick={() => setFilterWeek(String(w))}
+            >
+              W{w}
             </button>
           ))}
         </div>
@@ -267,7 +333,7 @@ export default function ExpenseTab({
         <ul className="space-y-2">
           {!filtered.length && (
             <li className="rounded-2xl border border-dashed border-rose-soft px-4 py-8 text-center text-sm text-ink-faint">
-              還沒有紀錄，從第一杯咖啡或 PARCO 開始吧。
+              還沒有紀錄，從第一杯咖啡或 PARCO 6F 開始吧。
             </li>
           )}
           {filtered.map((entry) => (
@@ -275,7 +341,8 @@ export default function ExpenseTab({
               <div className="min-w-0 flex-1">
                 <p className="truncate font-semibold text-ink">{entry.note}</p>
                 <p className="text-xs text-ink-faint">
-                  {EXPENSE_CATEGORIES.find((c) => c.id === entry.categoryId)?.label || "其他"}
+                  {EXPENSE_CATEGORIES.find((c) => c.id === entry.categoryId)?.label || "其他"} · W
+                  {entry.week || weekOf(new Date(entry.createdAt))}
                 </p>
               </div>
               <div className="text-right">
@@ -296,4 +363,3 @@ export default function ExpenseTab({
     </div>
   );
 }
-

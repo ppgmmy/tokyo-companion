@@ -1,6 +1,6 @@
 ﻿# Tokyo Companion（東京旅行助手）
 
-Mobile web app for a Harajuku & Shibuya focused Tokyo trip.
+Mobile web app for a 1-month Harajuku & Shibuya focused Tokyo stay (Aug 7 – Sep 6, 2026).
 
 ## Develop
 

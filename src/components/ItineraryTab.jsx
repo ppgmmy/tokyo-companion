@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { ITINERARY, PLACES, mapsLink } from "../data";
+import { useMemo, useState } from "react";
+import { ITINERARY, PLACES, WEEK_META, mapsLink } from "../data";
 
 function MapButton({ query }) {
   if (!query) return null;
@@ -15,9 +15,21 @@ function MapButton({ query }) {
   );
 }
 
-export default function ItineraryTab({ dayId, setDayId }) {
+export default function ItineraryTab({ dayId, setDayId, week, setWeek }) {
   const [placeFilter, setPlaceFilter] = useState("near");
-  const day = ITINERARY.find((d) => d.id === dayId) || ITINERARY[0];
+
+  const daysInWeek = useMemo(() => ITINERARY.filter((d) => d.week === week), [week]);
+  const day = ITINERARY.find((d) => d.id === dayId) || daysInWeek[0] || ITINERARY[0];
+
+  function changeWeek(nextWeek) {
+    setWeek(nextWeek);
+    const first = ITINERARY.find((d) => d.week === nextWeek);
+    if (first) setDayId(first.id);
+  }
+
+  const rangeLabel = daysInWeek.length
+    ? `${WEEK_META[week].hint} · ${daysInWeek[0].id.slice(5).replace("-", "/")} – ${daysInWeek[daysInWeek.length - 1].id.slice(5).replace("-", "/")} · ${daysInWeek.length} 天`
+    : "";
 
   return (
     <div className="space-y-5">
@@ -26,21 +38,21 @@ export default function ItineraryTab({ dayId, setDayId }) {
           <div>
             <p className="text-xs font-medium text-white/75">Base area</p>
             <p className="font-display text-2xl font-extrabold tracking-tight">原宿 · 澀谷</p>
-            <p className="mt-1 text-sm text-white/80">Tokyo · 步行圈為主</p>
+            <p className="mt-1 text-sm text-white/80">8/7 – 9/6 · 一個月長住</p>
           </div>
           <div className="rounded-2xl bg-white/15 px-3 py-2 text-right backdrop-blur-sm">
             <p className="text-[10px] uppercase tracking-wider text-white/70">Days</p>
-            <p className="font-display text-lg font-bold">07</p>
+            <p className="font-display text-lg font-bold">31</p>
           </div>
         </div>
         <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
           <div className="rounded-2xl bg-white/12 px-3 py-2">
             <p className="font-bold">95% 步行可達</p>
-            <p className="mt-0.5 text-white/75">原宿／澀谷核心</p>
+            <p className="mt-0.5 text-white/75">PARCO · 竹下 · Cat Street</p>
           </div>
           <div className="rounded-2xl bg-white/12 px-3 py-2">
             <p className="font-bold">5% 遠征</p>
-            <p className="mt-0.5 text-white/75">地鐵一日遊</p>
+            <p className="mt-0.5 text-white/75">秋葉 · 中野 · 御苑</p>
           </div>
         </div>
       </div>
@@ -81,6 +93,20 @@ export default function ItineraryTab({ dayId, setDayId }) {
         </div>
       </section>
 
+      <div className="grid grid-cols-5 gap-1 rounded-2xl bg-white/80 p-1 shadow-[var(--shadow-soft)]">
+        {[1, 2, 3, 4, 5].map((w) => (
+          <button
+            key={w}
+            type="button"
+            onClick={() => changeWeek(w)}
+            className={`week-tab min-h-11 rounded-xl text-[11px] font-bold transition ${week === w ? "is-active" : "text-ink-faint"}`}
+          >
+            {WEEK_META[w].label}
+          </button>
+        ))}
+      </div>
+      <p className="px-1 text-xs font-medium text-ink-faint">{rangeLabel}</p>
+
       <label className="block">
         <span className="mb-1.5 block text-sm font-semibold text-ink">選擇日期</span>
         <select
@@ -88,7 +114,7 @@ export default function ItineraryTab({ dayId, setDayId }) {
           onChange={(e) => setDayId(e.target.value)}
           className="w-full min-h-12 appearance-none rounded-2xl border border-rose-soft bg-white/90 px-4 text-base font-medium outline-none ring-rose-brand focus:ring-2"
         >
-          {ITINERARY.map((d) => (
+          {daysInWeek.map((d) => (
             <option key={d.id} value={d.id}>
               Day {d.day} · {d.mode === "expedition" ? "遠征 · " : ""}
               {d.title}
@@ -107,7 +133,9 @@ export default function ItineraryTab({ dayId, setDayId }) {
               {day.mode === "near" ? "步行圈" : "遠征 5%"}
             </span>
             <h3 className="mt-1 font-display text-lg font-bold text-ink">{day.title}</h3>
-            <p className="text-sm text-ink-soft">{day.vibe}</p>
+            <p className="text-sm text-ink-soft">
+              {day.id.slice(5).replace("-", "/")} · {day.vibe}
+            </p>
           </div>
         </div>
         <ol className="relative ml-5 space-y-4 border-l-2 border-rose-soft pl-6">
