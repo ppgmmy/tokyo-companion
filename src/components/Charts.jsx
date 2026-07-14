@@ -42,7 +42,9 @@ export function DoughnutChart({ segments, size = 180, thickness = 22 }) {
         </svg>
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">分類</p>
-          <p className="font-display text-lg font-bold text-ink">{segments.filter((s) => s.value > 0).length}</p>
+          <p className="font-display text-lg font-bold text-ink">
+            {segments.filter((s) => s.value > 0).length}
+          </p>
         </div>
       </div>
       <ul className="w-full space-y-2">
@@ -54,7 +56,10 @@ export function DoughnutChart({ segments, size = 180, thickness = 22 }) {
                 <span className="h-2.5 w-2.5 rounded-full" style={{ background: seg.color }} />
                 {seg.label}
               </span>
-              <span className="text-ink-soft">{pct}%</span>
+              <span className="text-ink-soft">
+                {pct}% · HK${" "}
+                {seg.value.toLocaleString("en-HK", { maximumFractionDigits: 0 })}
+              </span>
             </li>
           );
         })}
@@ -63,21 +68,25 @@ export function DoughnutChart({ segments, size = 180, thickness = 22 }) {
   );
 }
 
-export function BarChart({ bars, maxValue }) {
+export function BarChart({ bars, maxValue, unit = "hkd" }) {
   const max = maxValue || Math.max(...bars.map((b) => b.value), 1);
   return (
     <div className="flex h-40 items-end gap-2">
       {bars.map((bar) => {
         const h = Math.max(4, Math.round((bar.value / max) * 120));
+        const label =
+          bar.value > 0
+            ? unit === "hkd"
+              ? `HK$${Math.round(bar.value)}`
+              : `¥${Math.round(bar.value / 1000)}k`
+            : "—";
         return (
           <div key={bar.id} className="flex flex-1 flex-col items-center justify-end gap-1">
-            <p className="text-[10px] font-semibold text-ink-faint">
-              {bar.value > 0 ? `¥${Math.round(bar.value / 1000)}k` : "—"}
-            </p>
+            <p className="text-[9px] font-semibold text-ink-faint">{label}</p>
             <div
               className="w-full rounded-t-xl bg-gradient-to-t from-rose-brand to-[#fb7185] transition-all duration-500"
               style={{ height: `${h}px` }}
-              title={`${bar.label}: ¥${Math.round(bar.value).toLocaleString()}`}
+              title={`${bar.label}: ${label}`}
             />
             <span className="text-[10px] font-bold text-ink-soft">{bar.label}</span>
           </div>

@@ -4,7 +4,7 @@ import CafeLogTab from "./components/CafeLogTab";
 import ChecklistTab from "./components/ChecklistTab";
 import ExpenseTab from "./components/ExpenseTab";
 import ItineraryTab from "./components/ItineraryTab";
-import { CHECKLIST, DEFAULT_BUDGET_JPY, DEFAULT_RATE, ITINERARY } from "./data";
+import { CHECKLIST, DEFAULT_BUDGET_JPY, DEFAULT_RATE, ITINERARY, normalizeExpense } from "./data";
 import { useExchangeRate } from "./hooks/useExchangeRate";
 import { useLocalStorage } from "./hooks/useLocalStorage";
 
@@ -28,13 +28,28 @@ function normalizeRate(saved) {
   return { hkdPerJpy: DEFAULT_RATE, source: "fallback", lastUpdated: null };
 }
 
+function useNormalizedExpenses() {
+  const [raw, setRaw] = useLocalStorage("tokyo-companion:expenses-v2", []);
+  const expenses = Array.isArray(raw)
+    ? raw.map((e) => normalizeExpense(e, DEFAULT_RATE))
+    : [];
+  function setExpenses(updater) {
+    setRaw((prev) => {
+      const base = Array.isArray(prev) ? prev.map((e) => normalizeExpense(e, DEFAULT_RATE)) : [];
+      const next = typeof updater === "function" ? updater(base) : updater;
+      return (Array.isArray(next) ? next : []).map((e) => normalizeExpense(e, DEFAULT_RATE));
+    });
+  }
+  return [expenses, setExpenses];
+}
+
 export default function App() {
   const [tab, setTab] = useLocalStorage("tokyo-companion:tab", "itinerary");
   const [week, setWeek] = useLocalStorage("tokyo-companion:week", 1);
   const [dayId, setDayId] = useLocalStorage("tokyo-companion:day", ITINERARY[0].id);
   const [checked, setChecked] = useLocalStorage("tokyo-companion:checklist-v2", emptyChecklist);
   const [cafes, setCafes] = useLocalStorage("tokyo-companion:cafes-v2", []);
-  const [expenses, setExpenses] = useLocalStorage("tokyo-companion:expenses-v2", []);
+  const [expenses, setExpenses] = useNormalizedExpenses();
   const [rateState, setRateState] = useLocalStorage(
     "tokyo-companion:rate-v2",
     normalizeRate(null)

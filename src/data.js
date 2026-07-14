@@ -31,6 +31,39 @@ export function weekOf(date) {
   return 5;
 }
 
+/** Prefer historically locked HKD; never recompute from the live global rate. */
+export function lockedHkd(entry, fallbackRate = DEFAULT_RATE) {
+  if (typeof entry?.amountInHKD === "number" && entry.amountInHKD >= 0) return entry.amountInHKD;
+  if (typeof entry?.hkd === "number" && entry.hkd >= 0) return entry.hkd;
+  const rate =
+    typeof entry?.storedRate === "number" && entry.storedRate > 0
+      ? entry.storedRate
+      : fallbackRate;
+  return (entry?.jpy || 0) * rate;
+}
+
+export function normalizeExpense(entry, fallbackRate = DEFAULT_RATE) {
+  const jpy = Number(entry.jpy) || 0;
+  const storedRate =
+    typeof entry.storedRate === "number" && entry.storedRate > 0
+      ? entry.storedRate
+      : fallbackRate;
+  const amountInHKD =
+    typeof entry.amountInHKD === "number"
+      ? entry.amountInHKD
+      : typeof entry.hkd === "number"
+        ? entry.hkd
+        : jpy * storedRate;
+  return {
+    ...entry,
+    jpy,
+    storedRate,
+    amountInHKD,
+    hkd: amountInHKD,
+    week: entry.week || weekOf(new Date(entry.createdAt || Date.now())),
+  };
+}
+
 export const PLACES = [
   {
     id: "parco",
